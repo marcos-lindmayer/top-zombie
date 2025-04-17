@@ -181,29 +181,19 @@ function touchMoved() {
 function touchEnded() {
   joystickActive = true;
   // Check if the ended touch was the one controlling the joystick
-  for (let i = 0; i < touches.length; i++) { // Check remaining touches
-      // This logic is tricky with p5's `touches` array after end.
-      // It's safer to check the ID passed implicitly by the event system if available,
-      // but p5 might not provide it directly here. We reset if *any* touch ends
-      // while an ID is active, or more robustly, check if the active ID is *no longer*
-      // present in the `touches` array.
-      // Simple approach: Reset if the touchMoveId is active.
-      if (touchMoveId !== -1) {
-         // A touch ended, was it ours? P5 doesn't tell us which one easily.
-         // Let's check if our tracked ID is still present in the touches array.
-         let stillTouching = false;
-         for (let j = 0; j < touches.length; j++) {
-             if (touches[j].id === touchMoveId) {
-                 stillTouching = true;
-                 break;
-             }
-         }
-         if (!stillTouching) {
-             resetJoystick();
-         }
+  // This logic checks if the specific touch ID that was controlling the joystick is no longer present
+  let touchStillDown = false;
+  for (let i = 0; i < touches.length; i++) {
+      if (touches[i].id === touchMoveId) {
+          touchStillDown = true;
+          break;
       }
   }
-   // Also check if touches array is empty after the event
+  if (!touchStillDown && touchMoveId !== -1) {
+       resetJoystick();
+  }
+
+   // Also check if touches array is empty after the event (covers edge cases)
    if (touches.length === 0) {
         resetJoystick();
    }
@@ -249,7 +239,8 @@ function drawJoystick() {
 // Mouse Pressed function only handles desktop clicks for modal/start/restart
 function mousePressed() {
    // Only handle mouse clicks if NOT using touch (prevents double actions)
-   if (!joystickActive) {
+   // Check if the event is *not* a touch event (heuristic)
+   if (touches.length === 0) {
         if (gameState === 'start') {
             startNewGame();
             gameState = 'playing';
@@ -571,6 +562,22 @@ function getRandomSpawnPosition() {
     return createVector(x,y);
 }
 
+// Helper function to find the nearest zombie to a given position
+function findNearestZombie(pos) {
+    let nearestZombie = null;
+    let minDistSq = Infinity; // Use squared distance for efficiency
+
+    for (let z of zombies) {
+        if (!z || !z.pos) continue; // Skip if zombie is invalid
+        let dSq = p5.Vector.sub(z.pos, pos).magSq();
+        if (dSq < minDistSq) {
+            minDistSq = dSq;
+            nearestZombie = z;
+        }
+    }
+    return nearestZombie;
+}
+
 
 // Function to spawn blood particles
 function spawnBloodParticles(x, y, isCrit = false) { // Added crit flag
@@ -653,9 +660,10 @@ function displayStartScreen() {
   textSize(24);
   text("Use WASD or Joystick to Move", width / 2, height / 2 - 20); // Updated
   text("Aim with Mouse (Desktop)", width / 2, height / 2 + 20); // Updated
-  text("Hold SPACE or Move Joystick to Shoot", width / 2, height / 2 + 60); // Updated
-  text("Collect XP orbs to Level Up!", width / 2, height/2 + 100);
-  text("Click / Tap to Start", width / 2, height / 2 + 160); // Updated
+  text("Aim at Nearest Enemy (Mobile)", width / 2, height / 2 + 60); // New
+  text("Hold SPACE or Move Joystick to Shoot", width / 2, height / 2 + 100); // Updated
+  text("Collect XP orbs to Level Up!", width / 2, height/2 + 140);
+  text("Click / Tap to Start", width / 2, height / 2 + 180); // Updated
 }
 
 
@@ -1026,12 +1034,11 @@ class Player {
 
   update() {
     // --- Passive Effects ---
-    // Health Regen
+    // (Health Regen, Shield Regen, Timers, etc. - unchanged)
     if (this.healthRegenRate > 0 && this.health < this.maxHealth) {
         this.health += this.healthRegenRate;
         this.health = min(this.health, this.maxHealth);
     }
-    // Shield Regen
     if (this.maxShieldHealth > 0) {
         if (this.shieldRegenTimer > 0) {
             this.shieldRegenTimer--;
@@ -1040,11 +1047,7 @@ class Player {
             this.shieldHealth = min(this.shieldHealth, this.maxShieldHealth);
         }
     }
-    // XP Vacuum Timer
-    if (this.hasXPVacuum && this.xpVacuumTimer > 0) {
-        this.xpVacuumTimer--;
-    }
-    // Adrenaline Timer
+    if (this.hasXPVacuum && this.xpVacuumTimer > 0) { this.xpVacuumTimer--; }
     let currentSpeed = this.speed;
     let currentFireRateCooldown = this.maxFireRateCooldown;
     if (this.adrenalineTimer > 0) {
@@ -1052,48 +1055,52 @@ class Player {
         currentFireRateCooldown *= this.adrenalineFireRateBonus;
         this.adrenalineTimer--;
     }
-    // Last Stand Cooldown Timer
-    if (this.lastStandCooldownTimer > 0) {
-        this.lastStandCooldownTimer--;
-    }
-    // Last Stand Invincibility Timer
+    if (this.lastStandCooldownTimer > 0) { this.lastStandCooldownTimer--; }
     if (this.lastStandTimer > 0) {
         this.lastStandTimer--;
-        // Override damage cooldown to maintain invincibility
         this.damageTakenCooldown = max(this.damageTakenCooldown, this.lastStandTimer);
     }
-    // Wave Clear Bonus Timer
-    if (this.waveClearBonusTimer > 0) {
+     if (this.waveClearBonusTimer > 0) {
         currentSpeed *= this.waveClearSpeedBonus;
         this.waveClearBonusTimer--;
     }
 
-
     // --- Input Handling ---
     let isMovingWithTouch = false;
     let moveVector = createVector(0, 0);
+    isShootingTouch = false; // Reset shooting flag each frame
 
     // Touch Controls (Joystick)
     if (touchMoveId !== -1) {
-        joystickActive = true; // Keep flag active if touch is down
+        joystickActive = true;
         let stickVec = createVector(touchMoveStickX - touchMoveBaseX, touchMoveStickY - touchMoveBaseY);
         let stickMag = stickVec.mag();
         let maxDist = joystickBaseSize / 2;
 
-        if (stickMag > maxDist * 0.1) { // Add a small deadzone
+        if (stickMag > maxDist * 0.1) { // Deadzone
              isMovingWithTouch = true;
-             moveVector = stickVec.limit(maxDist); // Use the clamped vector for direction/speed scaling
-             this.vel = moveVector.copy().normalize().mult(currentSpeed); // Use potentially boosted speed
-             this.angle = moveVector.heading(); // Aim in movement direction
+             moveVector = stickVec.limit(maxDist);
+             this.vel = moveVector.copy().normalize().mult(currentSpeed);
+
+             // --- MOBILE AIMING ---
+             let nearestZombie = findNearestZombie(this.pos);
+             if (nearestZombie) {
+                 // Aim at nearest zombie
+                 this.angle = atan2(nearestZombie.pos.y - this.pos.y, nearestZombie.pos.x - this.pos.x);
+             } else {
+                 // Fallback: aim in movement direction if no zombies
+                 this.angle = moveVector.heading();
+             }
              isShootingTouch = true; // Auto-shoot when moving with touch
         } else {
              this.vel.set(0, 0); // Stop if stick is centered
+             // Keep last angle when stopped? Or aim forward? Let's keep last angle.
              isShootingTouch = false;
         }
     }
     // Keyboard Controls (Only if touch is not active)
     else if (!isMovingWithTouch) {
-        joystickActive = false; // No active touch controlling joystick
+        joystickActive = false;
         isShootingTouch = false;
         // Aiming (Mouse)
         this.angle = atan2(mouseY - this.pos.y, mouseX - this.pos.x);
@@ -1135,6 +1142,8 @@ class Player {
     if (this.fireRateCooldown > 0) { this.fireRateCooldown--; }
   }
 
+  // --- Other Player Methods (display, gainXP, heal, takeDamage, etc.) ---
+  // (These remain largely the same as the previous version)
   display() {
     push();
     translate(this.pos.x, this.pos.y);
@@ -1271,6 +1280,9 @@ class Player {
   }
 }
 
+// === Other Classes (Bullet, EnemyBullet, Zombie, MiniBoss, GigaBoss, ExperienceBall, Particle) ===
+// (These classes remain the same as the previous version, no changes needed for this request)
+// ... (Paste the full code for these classes here from the previous version) ...
 class Bullet {
   constructor(x, y, angle, damage = 10, pierceCount = 1, speedMultiplier = 1.0, sizeMultiplier = 1.0, maxRicochets = 0) {
     this.pos = createVector(x, y);
