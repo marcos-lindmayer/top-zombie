@@ -225,7 +225,7 @@ function setup() {
   defineUpgrades(); // Must be called after upgradePool is declared
 
   // --- Connect to Server ---
-  const serverUrl = 'https://top-zombie-33heqh8lq-marcoslindmayers-projects.vercel.app/'; // Ensure this matches server port
+  const serverUrl = 'https://top-zombie-git-online-marcoslindmayers-projects.vercel.app/'; // Ensure this matches server port
   console.log("Attempting to connect to:", serverUrl); // DEBUG LOG
   socket = io(serverUrl, {
       reconnectionAttempts: 5,
