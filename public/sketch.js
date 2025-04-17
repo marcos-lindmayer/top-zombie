@@ -38,18 +38,15 @@ const XP_LEVEL_SCALING_FACTOR = 1.25;
 // --- Class Definitions (Moved Up) ---
 class Player { // Client-side representation for local effects/display
   constructor(x, y) {
-    // Use createVector ONLY inside methods or after setup guarantee
-    this.pos = createVector(x, y); // createVector is available inside setup/draw
+    this.pos = createVector(x, y);
     this.size = PLAYER_SIZE;
     this.angle = -PI / 2;
     this.color = COLOR_PLAYER;
-    // Local effect timers
     this.damageTakenCooldown = 0;
     this.levelUpEffectTimer = 0;
     this.adrenalineTimer = 0;
     this.lastStandTimer = 0;
     this.waveClearBonusTimer = 0;
-    // Stats synced from server (used for display)
     this.health = 100;
     this.maxHealth = 100;
     this.shieldHealth = 0;
@@ -57,13 +54,10 @@ class Player { // Client-side representation for local effects/display
     this.currentXP = 0;
     this.xpToNextLevel = BASE_XP_TO_LEVEL;
     this.level = 1;
-    // Other stats needed for effects if any (most are server-side)
-    this.lastStandDuration = 120; // Needed for visual effect mapping
-    this.id = null; // Will be set by server
-     // Add base stats needed for HUD calculation if not directly sent
-    this.maxFireRateCooldown = PLAYER_BASE_FIRE_RATE_COOLDOWN; // Store base locally
-    // Add other base stats if needed for HUD display calculations
-    this.speed = 4.0; // Store base speed locally
+    this.lastStandDuration = 120;
+    this.id = null;
+    this.maxFireRateCooldown = PLAYER_BASE_FIRE_RATE_COOLDOWN;
+    this.speed = 4.0;
     this.bulletDamage = 10;
     this.maxPierceCount = 1;
     this.shotCount = 1;
@@ -71,17 +65,13 @@ class Player { // Client-side representation for local effects/display
     this.critMultiplier = 1.5;
     this.healthRegenRate = 0;
     this.damageReduction = 0;
-
   }
-
-  // Only update local visual effect timers
   updateLocalEffects() {
        if (this.damageTakenCooldown > 0) { this.damageTakenCooldown--; }
        if (this.levelUpEffectTimer > 0) { this.levelUpEffectTimer--; }
        if (this.adrenalineTimer > 0) { this.adrenalineTimer--; }
        if (this.lastStandTimer > 0) { this.lastStandTimer--; }
        if (this.waveClearBonusTimer > 0) { this.waveClearBonusTimer--; }
-       // Update local stats based on received shared state for effects
        if (serverState && serverState.shared) {
            this.health = serverState.shared.health;
            this.maxHealth = serverState.shared.maxHealth;
@@ -90,117 +80,48 @@ class Player { // Client-side representation for local effects/display
            this.currentXP = serverState.shared.currentXP;
            this.xpToNextLevel = serverState.shared.xpToNextLevel;
            this.level = serverState.shared.level;
-           // Update other stats if needed for visuals, like maxFireRateCooldown for ASPD calc
-           // This requires server to send these modified stats OR client to recalculate based on perks
-           // For simplicity, HUD calculation might use base values + perk list, or rely on server sending calculated stats
-           // Example: Update local maxFireRateCooldown if server sends it (or calculate based on perks)
-           // this.maxFireRateCooldown = serverState.shared.maxFireRateCooldown || PLAYER_BASE_FIRE_RATE_COOLDOWN;
        }
   }
-
-  // Display logic remains the same
   display() {
     push();
     translate(this.pos.x, this.pos.y);
-
-    // Shield Visual
-    if (this.maxShieldHealth > 0 && this.shieldHealth > 0) {
-        let shieldAlpha = map(this.shieldHealth, 0, this.maxShieldHealth, 50, 150);
-        fill(COLOR_SHIELD[0], COLOR_SHIELD[1], COLOR_SHIELD[2], shieldAlpha);
-        noStroke();
-        ellipse(0, 0, this.size * 1.8, this.size * 1.8);
-    }
-
-    // Adrenaline / Wave Bonus Visual?
-    if (this.adrenalineTimer > 0 || this.waveClearBonusTimer > 0) {
-        fill(255, 255, 0, 50); // Yellow glow
-        noStroke();
-        ellipse(0, 0, this.size * 1.5, this.size * 1.5);
-    }
-
-    // Player Body
-    rotate(this.angle);
-    fill(this.color);
-    stroke(0);
-    strokeWeight(1);
-    triangle(this.size / 2, 0, -this.size / 2, -this.size / 3, -this.size / 2, this.size / 3);
+    if (this.maxShieldHealth > 0 && this.shieldHealth > 0) { let shieldAlpha = map(this.shieldHealth, 0, this.maxShieldHealth, 50, 150); fill(COLOR_SHIELD[0], COLOR_SHIELD[1], COLOR_SHIELD[2], shieldAlpha); noStroke(); ellipse(0, 0, this.size * 1.8, this.size * 1.8); }
+    if (this.adrenalineTimer > 0 || this.waveClearBonusTimer > 0) { fill(255, 255, 0, 50); noStroke(); ellipse(0, 0, this.size * 1.5, this.size * 1.5); }
+    rotate(this.angle); fill(this.color); stroke(0); strokeWeight(1); triangle(this.size / 2, 0, -this.size / 2, -this.size / 3, -this.size / 2, this.size / 3);
     pop();
-
-    // Damage Flash
-    if (this.damageTakenCooldown > 0 && this.lastStandTimer <= 0 && frameCount % 10 < 5) {
-        fill(255, 0, 0, 150);
-        noStroke();
-        ellipse(this.pos.x, this.pos.y, this.size * 1.5, this.size * 1.5);
-    }
-    // Last Stand Invincibility Visual
-    if (this.lastStandTimer > 0) {
-        let alpha = map(this.lastStandTimer, this.lastStandDuration, 0, 150, 50);
-        stroke(255, 255, 255, alpha);
-        strokeWeight(map(this.lastStandTimer, this.lastStandDuration, 0, 4, 1));
-        noFill();
-        ellipse(this.pos.x, this.pos.y, this.size * 2.0, this.size * 2.0);
-    }
-    // Level Up Flash
-     if (this.levelUpEffectTimer > 0) {
-        let alpha = map(this.levelUpEffectTimer, 60, 0, 200, 0);
-        let ringSize = map(this.levelUpEffectTimer, 60, 0, this.size * 1.5, this.size * 3);
-        noFill();
-        stroke(255, 215, 0, alpha);
-        strokeWeight(3);
-        ellipse(this.pos.x, this.pos.y, ringSize, ringSize);
-    }
+    if (this.damageTakenCooldown > 0 && this.lastStandTimer <= 0 && frameCount % 10 < 5) { fill(255, 0, 0, 150); noStroke(); ellipse(this.pos.x, this.pos.y, this.size * 1.5, this.size * 1.5); }
+    if (this.lastStandTimer > 0) { let alpha = map(this.lastStandTimer, this.lastStandDuration, 0, 150, 50); stroke(255, 255, 255, alpha); strokeWeight(map(this.lastStandTimer, this.lastStandDuration, 0, 4, 1)); noFill(); ellipse(this.pos.x, this.pos.y, this.size * 2.0, this.size * 2.0); }
+    if (this.levelUpEffectTimer > 0) { let alpha = map(this.levelUpEffectTimer, 60, 0, 200, 0); let ringSize = map(this.levelUpEffectTimer, 60, 0, this.size * 1.5, this.size * 3); noFill(); stroke(255, 215, 0, alpha); strokeWeight(3); ellipse(this.pos.x, this.pos.y, ringSize, ringSize); }
    }
-   // Other methods (takeDamage, heal, gainXP) are server-side now
 }
-
 class Particle { // Keep particles client-side
-    constructor(x, y, pColor = COLOR_BLOOD, baseSpeed = 1, speedRange = 3) {
-        this.pos = createVector(x, y); // OK here, called after setup
-        this.vel = p5.Vector.random2D();
-        this.vel.mult(random(baseSpeed, baseSpeed + speedRange));
-        this.lifespan = random(15, 40);
-        let baseC = (pColor instanceof p5.Color) ? pColor : color(pColor[0], pColor[1], pColor[2]);
-        this.color = color(red(baseC), green(baseC), blue(baseC), 200);
-        this.size = random(2, 5);
-    }
+    constructor(x, y, pColor = COLOR_BLOOD, baseSpeed = 1, speedRange = 3) { this.pos = createVector(x, y); this.vel = p5.Vector.random2D(); this.vel.mult(random(baseSpeed, baseSpeed + speedRange)); this.lifespan = random(15, 40); let baseC = (pColor instanceof p5.Color) ? pColor : color(pColor[0], pColor[1], pColor[2]); this.color = color(red(baseC), green(baseC), blue(baseC), 200); this.size = random(2, 5); }
     update() { this.pos.add(this.vel); this.lifespan -= 1; this.vel.mult(0.95); this.color.setAlpha(map(this.lifespan, 0, 40, 0, 200)); }
     display() { noStroke(); fill(this.color); ellipse(this.pos.x, this.pos.y, this.size, this.size); }
     isDead() { return this.lifespan <= 0; }
 }
-// Other classes (Bullet, EnemyBullet, Zombie, etc.) are not needed on client
-
 
 // --- Global Variables (Declared BEFORE setup) ---
 let socket;
 let myPlayerId = null;
-let serverState = { // Default structure
+let serverState = {
     players: {}, bullets: {}, enemyBullets: {}, zombies: {}, xpBalls: {},
     shared: { health: 100, maxHealth: 100, currentXP: 0, xpToNextLevel: BASE_XP_TO_LEVEL, level: 1, acquiredPerks: [], firstPlayerId: null, wave: 0, score: 0, maxShieldHealth: 0, shieldHealth: 0 },
     gameState: 'start'
 };
-
-// Local player instance for effects & structure (position/angle updated from serverState)
-let localPlayerInstance; // DECLARED only, initialized in setup
+let localPlayerInstance;
 let lastSentInput = {};
-
-// UI State
 let showLevelUpModal = false;
 let levelUpOptions = [];
 let levelUpButtons = [];
-
-// Mobile Controls State
 let touchMoveId = -1;
 let touchMoveBaseX, touchMoveBaseY;
 let touchMoveStickX, touchMoveStickY;
-let joystickBaseSize = 120; // Defined BEFORE setup uses it
+let joystickBaseSize = 120;
 let joystickStickSize = 60;
 let joystickActive = false;
 let isShootingTouch = false;
-
-// Particles Array
 let particles = [];
-
-// Local Perk Definitions (for UI)
 let upgradePool = [];
 
 
@@ -208,49 +129,34 @@ let upgradePool = [];
 
 function setup() {
   createCanvas(windowWidth * 0.9, windowHeight * 0.8);
-  angleMode(RADIANS);
-  textAlign(CENTER, CENTER);
-  textSize(16);
+  angleMode(RADIANS); textAlign(CENTER, CENTER); textSize(16);
 
-  // Initialize local player INSTANCE here, AFTER p5 is ready
   localPlayerInstance = new Player(width / 2, height / 2);
 
-  // Initialize Joystick position (uses joystickBaseSize)
   touchMoveBaseX = joystickBaseSize * 0.8;
   touchMoveBaseY = height - joystickBaseSize * 0.8;
   touchMoveStickX = touchMoveBaseX;
   touchMoveStickY = touchMoveBaseY;
 
-  // Define upgrades locally for descriptions
-  defineUpgrades(); // Must be called after upgradePool is declared
+  defineUpgrades();
 
   // --- Connect to Server ---
-  const serverUrl = 'https://top-zombie-git-online-marcoslindmayers-projects.vercel.app/'; // Ensure this matches server port
-  console.log("Attempting to connect to:", serverUrl); // DEBUG LOG
+  const serverUrl = 'https://top-zombie-git-online-marcoslindmayers-projects.vercel.app/'; // Use your Vercel URL
+  // const serverUrl = 'http://localhost:5500'; // Use this for local testing
+  console.log("Attempting to connect to:", serverUrl);
   socket = io(serverUrl, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      // Vercel might require specifying transports, especially websockets
+      transports: ['websocket', 'polling'] // <<<< UNCOMMENTED THIS LINE
   });
 
   // --- Socket Event Listeners ---
-  socket.on('connect', () => {
-    console.log('Connected to server with ID:', socket.id);
-    startNewGameClient();
-    // gameState will be updated by server shortly
-  });
-
-  socket.on('assignId', (id) => {
-      console.log("Assigned ID:", id);
-      myPlayerId = id;
-      localPlayerInstance.id = id; // Assign ID to local instance
-  });
-
+  socket.on('connect', () => { console.log('Connected to server with ID:', socket.id); startNewGameClient(); });
+  socket.on('assignId', (id) => { console.log("Assigned ID:", id); myPlayerId = id; localPlayerInstance.id = id; });
   socket.on('gameStateUpdate', (newState) => {
-    // console.log("Received state:", JSON.stringify(newState)); // DEBUG LOG (can be verbose)
     serverState = newState;
-    // Use the gameState from the SHARED part of the state update
-    gameState = serverState.shared.gameState; // Sync from shared state
-
+    gameState = serverState.shared.gameState;
     if (myPlayerId && serverState.players[myPlayerId]) {
         localPlayerInstance.pos.x = serverState.players[myPlayerId].x;
         localPlayerInstance.pos.y = serverState.players[myPlayerId].y;
@@ -266,86 +172,34 @@ function setup() {
         localPlayerInstance.level = serverState.shared.level;
     }
   });
-
    socket.on('promptPerkSelection', (optionsFromServer) => {
         console.log("Received perk options:", optionsFromServer);
-        if (myPlayerId === serverState.shared.firstPlayerId) {
-            levelUpOptions = optionsFromServer;
-            showLevelUpModal = true;
-            // gameState 'levelUp' is set via gameStateUpdate
-        } else {
-            console.log("Waiting for first player to choose perk.");
-             showLevelUpModal = false;
-        }
+        if (myPlayerId === serverState.shared.firstPlayerId) { levelUpOptions = optionsFromServer; showLevelUpModal = true; }
+        else { console.log("Waiting for first player to choose perk."); showLevelUpModal = false; }
     });
-
-    socket.on('gameOver', () => {
-        console.log("Game Over signal received.");
-        gameState = 'gameOver';
-    });
-
-   socket.on('serverFull', (message) => {
-        console.warn(message);
-        alert(message);
-        socket.disconnect();
-   });
-
-  socket.on('disconnect', (reason) => {
-    console.log('Disconnected from server:', reason);
-    gameState = 'start';
-    myPlayerId = null;
-    alert("Disconnected from server: " + reason);
-  });
-
-  socket.on('connect_error', (err) => {
-      console.error("Connection Error:", err.message, err);
-      gameState = 'start';
-      alert("Failed to connect to server.");
-  });
-
+    socket.on('gameOver', () => { console.log("Game Over signal received."); gameState = 'gameOver'; });
+    socket.on('serverFull', (message) => { console.warn(message); alert(message); socket.disconnect(); });
+    socket.on('disconnect', (reason) => { console.log('Disconnected from server:', reason); gameState = 'start'; myPlayerId = null; alert("Disconnected from server: " + reason); });
+    socket.on('connect_error', (err) => { console.error("Connection Error:", err.message, err); gameState = 'start'; alert("Failed to connect to server."); });
 }
 
 function draw() {
   background(COLOR_BACKGROUND);
-  // console.log("Client Drawing State:", gameState); // DEBUG LOG
-
-  // --- Game State Rendering ---
-  // Use client's gameState synced from server
-  switch (gameState) {
-    case 'start':
-      displayStartScreen();
-      break;
+  switch (gameState) { // Use client's gameState synced from server
+    case 'start': displayStartScreen(); break;
     case 'playing':
     case 'levelUp':
         drawGameFromServerState();
         if (joystickActive) drawJoystick();
         displayHUD();
-
-        if (gameState === 'levelUp' && myPlayerId === serverState.shared.firstPlayerId && showLevelUpModal) {
-             displayLevelUpModal(levelUpOptions);
-        } else if (gameState === 'levelUp' && myPlayerId !== serverState.shared.firstPlayerId) {
-            fill(255, 255, 255, 150); textSize(24); textAlign(CENTER, CENTER);
-            text("Waiting for perk selection...", width / 2, height / 2);
-        }
+        if (gameState === 'levelUp' && myPlayerId === serverState.shared.firstPlayerId && showLevelUpModal) { displayLevelUpModal(levelUpOptions); }
+        else if (gameState === 'levelUp' && myPlayerId !== serverState.shared.firstPlayerId) { fill(255, 150); textSize(24); textAlign(CENTER, CENTER); text("Waiting for perk selection...", width / 2, height / 2); }
       break;
-    case 'gameOver':
-      displayGameOverScreen();
-      break;
-    default:
-        // Draw something if state is unexpected?
-        fill(255); textSize(20); textAlign(CENTER, CENTER);
-        text("Loading / Connecting...", width/2, height/2);
+    case 'gameOver': displayGameOverScreen(); break;
+    default: fill(255); textSize(20); textAlign(CENTER, CENTER); text("Loading / Connecting...", width/2, height/2);
   }
-
-  // --- Send Inputs (only when playing) ---
-  if (gameState === 'playing' && myPlayerId && socket.connected) {
-      sendInputs();
-  }
-
-  // Update local player effects (like timers for visuals)
-  if(localPlayerInstance) { // Ensure instance exists before updating
-      localPlayerInstance.updateLocalEffects();
-  }
+  if (gameState === 'playing' && myPlayerId && socket.connected) { sendInputs(); }
+  if(localPlayerInstance) { localPlayerInstance.updateLocalEffects(); }
 }
 
 // Handle Touch Start/Move/End (Unchanged)
@@ -355,34 +209,16 @@ function touchStarted() {
     for (let i = 0; i < touches.length; i++) {
         let touch = touches[i];
         let d = dist(touch.x, touch.y, touchMoveBaseX, touchMoveBaseY);
-        if (d < joystickBaseSize * 0.75) {
-            touchMoveId = touch.id;
-            updateJoystickStick(touch.x, touch.y);
-            return false;
-        }
+        if (d < joystickBaseSize * 0.75) { touchMoveId = touch.id; updateJoystickStick(touch.x, touch.y); return false; }
     }
   }
-   if (gameState === 'start' || gameState === 'gameOver') {
-        if (socket && socket.connected) {
-             // Optionally send a 'requestRestart' event if needed by server logic
-             // socket.emit('requestRestart');
-        }
-        // Let server dictate state change on connect/reconnect
-        return false;
-   }
+   if (gameState === 'start' || gameState === 'gameOver') { if (socket && socket.connected) { /* Optionally send restart request */ } return false; }
    if (gameState === 'levelUp' && showLevelUpModal) {
-       for (let i = 0; i < levelUpButtons.length; i++) { // Use renamed variable
+       for (let i = 0; i < levelUpButtons.length; i++) {
             let btn = levelUpButtons[i];
             if (touches[0] && touches[0].x > btn.x && touches[0].x < btn.x + btn.w && touches[0].y > btn.y && touches[0].y < btn.y + btn.h) {
-                if (socket && socket.connected) { // Check connection before emitting
-                    socket.emit('perkSelected', btn.perk); // Send stored perk identifier
-                }
-                showLevelUpModal = false;
-                levelUpOptions = [];
-                levelUpButtons = [];
-                // gameState = 'playing'; // Let server dictate state via gameStateUpdate
-                resetJoystick();
-                return false;
+                if (socket && socket.connected) { socket.emit('perkSelected', btn.perk); }
+                showLevelUpModal = false; levelUpOptions = []; levelUpButtons = []; resetJoystick(); return false;
             }
         }
    }
@@ -390,75 +226,30 @@ function touchStarted() {
 }
 function touchMoved() {
   joystickActive = true;
-  for (let i = 0; i < touches.length; i++) {
-    let touch = touches[i];
-    if (touch.id === touchMoveId) {
-      updateJoystickStick(touch.x, touch.y);
-      return false;
-    }
-  }
+  for (let i = 0; i < touches.length; i++) { let touch = touches[i]; if (touch.id === touchMoveId) { updateJoystickStick(touch.x, touch.y); return false; } }
   return true;
 }
 function touchEnded() {
-  joystickActive = true;
-  let touchStillDown = false;
-  for (let i = 0; i < touches.length; i++) {
-      if (touches[i].id === touchMoveId) {
-          touchStillDown = true;
-          break;
-      }
-  }
-  if (!touchStillDown && touchMoveId !== -1) {
-       resetJoystick();
-  }
-   if (touches.length === 0) {
-        resetJoystick();
-   }
+  joystickActive = true; let touchStillDown = false;
+  for (let i = 0; i < touches.length; i++) { if (touches[i].id === touchMoveId) { touchStillDown = true; break; } }
+  if (!touchStillDown && touchMoveId !== -1) { resetJoystick(); }
+   if (touches.length === 0) { resetJoystick(); }
   return false;
 }
-function updateJoystickStick(x, y) {
-    let vec = createVector(x - touchMoveBaseX, y - touchMoveBaseY);
-    let maxDist = joystickBaseSize / 2;
-    if (vec.magSq() > maxDist * maxDist) { vec.setMag(maxDist); }
-    touchMoveStickX = touchMoveBaseX + vec.x;
-    touchMoveStickY = touchMoveBaseY + vec.y;
-}
-function resetJoystick() {
-    touchMoveId = -1;
-    touchMoveStickX = touchMoveBaseX;
-    touchMoveStickY = touchMoveBaseY;
-    isShootingTouch = false;
-}
-function drawJoystick() {
-    push();
-    fill(COLOR_JOYSTICK_BASE); noStroke();
-    ellipse(touchMoveBaseX, touchMoveBaseY, joystickBaseSize, joystickBaseSize);
-    fill(COLOR_JOYSTICK_STICK);
-    ellipse(touchMoveStickX, touchMoveStickY, joystickStickSize, joystickStickSize);
-    pop();
-}
+function updateJoystickStick(x, y) { let vec = createVector(x - touchMoveBaseX, y - touchMoveBaseY); let maxDist = joystickBaseSize / 2; if (vec.magSq() > maxDist * maxDist) { vec.setMag(maxDist); } touchMoveStickX = touchMoveBaseX + vec.x; touchMoveStickY = touchMoveBaseY + vec.y; }
+function resetJoystick() { touchMoveId = -1; touchMoveStickX = touchMoveBaseX; touchMoveStickY = touchMoveBaseY; isShootingTouch = false; }
+function drawJoystick() { push(); fill(COLOR_JOYSTICK_BASE); noStroke(); ellipse(touchMoveBaseX, touchMoveBaseY, joystickBaseSize, joystickBaseSize); fill(COLOR_JOYSTICK_STICK); ellipse(touchMoveStickX, touchMoveStickY, joystickStickSize, joystickStickSize); pop(); }
 
 // Mouse Pressed function only handles desktop clicks for modal/start/restart
 function mousePressed() {
    if (touches.length === 0) { // Only handle mouse clicks if NOT using touch
-        if (gameState === 'start' || gameState === 'gameOver') {
-             if (socket && socket.connected) {
-                 // Optionally send a 'requestRestart' event if needed by server logic
-                 // socket.emit('requestRestart');
-             }
-             // Let server dictate state change
-        } else if (gameState === 'levelUp' && showLevelUpModal) {
-            for (let i = 0; i < levelUpButtons.length; i++) { // Use renamed variable
+        if (gameState === 'start' || gameState === 'gameOver') { if (socket && socket.connected) { /* Optionally send restart request */ } }
+        else if (gameState === 'levelUp' && showLevelUpModal) {
+            for (let i = 0; i < levelUpButtons.length; i++) {
                 let btn = levelUpButtons[i];
                 if (mouseX > btn.x && mouseX < btn.x + btn.w && mouseY > btn.y && mouseY < btn.y + btn.h) {
-                     if (socket && socket.connected) { // Check connection before emitting
-                        socket.emit('perkSelected', btn.perk); // Send stored perk identifier
-                     }
-                    showLevelUpModal = false;
-                    levelUpOptions = [];
-                    levelUpButtons = [];
-                    // gameState = 'playing'; // Let server dictate state
-                    break;
+                     if (socket && socket.connected) { socket.emit('perkSelected', btn.perk); }
+                    showLevelUpModal = false; levelUpOptions = []; levelUpButtons = []; break;
                 }
             }
         }
@@ -471,76 +262,40 @@ function windowResized() {
   resizeCanvas(windowWidth * 0.9, windowHeight * 0.8);
   touchMoveBaseX = joystickBaseSize * 0.8;
   touchMoveBaseY = height - joystickBaseSize * 0.8;
-  if (touchMoveId === -1) {
-      touchMoveStickX = touchMoveBaseX;
-      touchMoveStickY = touchMoveBaseY;
-  }
+  if (touchMoveId === -1) { touchMoveStickX = touchMoveBaseX; touchMoveStickY = touchMoveBaseY; }
 }
 
 // === Game Logic Functions === (Client-side simulation removed)
-
 function runGame() {
-  // Main game update logic is now on the server.
-  // Client focuses on rendering the state received from the server.
-  // Input sending happens in draw() loop.
-  // Particle updates happen here or in drawGameFromServerState.
-
    // Update local particles
    for (let i = particles.length - 1; i >= 0; i--) {
       particles[i].update();
-      // Particles are drawn in drawGameFromServerState
-      if (particles[i].isDead()) {
-          particles.splice(i, 1);
-      }
+      if (particles[i].isDead()) { particles.splice(i, 1); }
   }
 }
-
 function startNewGameClient() {
-    // Reset local UI state if needed, server handles authoritative state reset
-    localPlayerInstance = new Player(width / 2, height / 2); // Reset local instance representation
-    if(myPlayerId) localPlayerInstance.id = myPlayerId; // Keep ID if we have it
-    showLevelUpModal = false;
-    levelUpOptions = [];
-    levelUpButtons = [];
-    resetJoystick();
-    particles = []; // Clear local particles
-    // Reset serverState defaults locally for smoother transition before first update
-     serverState = { players: {}, bullets: {}, enemyBullets: {}, zombies: {}, xpBalls: {}, shared: { health: 100, maxHealth: 100, currentXP: 0, xpToNextLevel: BASE_XP_TO_LEVEL, level: 1, acquiredPerks: [], firstPlayerId: null, wave: 0, score: 0, maxShieldHealth: 0, shieldHealth: 0 }, gameState: 'playing' };
+    localPlayerInstance = new Player(width / 2, height / 2);
+    if(myPlayerId) localPlayerInstance.id = myPlayerId;
+    showLevelUpModal = false; levelUpOptions = []; levelUpButtons = [];
+    resetJoystick(); particles = [];
+    serverState = { players: {}, bullets: {}, enemyBullets: {}, zombies: {}, xpBalls: {}, shared: { health: 100, maxHealth: 100, currentXP: 0, xpToNextLevel: BASE_XP_TO_LEVEL, level: 1, acquiredPerks: [], firstPlayerId: null, wave: 0, score: 0, maxShieldHealth: 0, shieldHealth: 0 }, gameState: 'playing' };
 }
-
-// Function to spawn blood particles (Client-side effect)
 function spawnBloodParticles(x, y, isCrit = false) {
     let numParticles = isCrit ? 15 : 5 + floor(random(3));
     let particleColor = isCrit ? COLOR_BULLET : COLOR_BLOOD;
     let baseSpeed = isCrit ? 2 : 1; let speedRange = isCrit ? 4 : 3;
-    for (let i = 0; i < numParticles; i++) {
-        particles.push(new Particle(x, y, particleColor, baseSpeed, speedRange));
-    }
+    for (let i = 0; i < numParticles; i++) { particles.push(new Particle(x, y, particleColor, baseSpeed, speedRange)); }
 }
-
 
 // --- Rendering ---
 function drawGameFromServerState() {
-    // Draw other players
-    for (const id in serverState.players) {
-        if (id !== myPlayerId) {
-            let pData = serverState.players[id];
-            push(); translate(pData.x, pData.y); rotate(pData.angle); fill(COLOR_OTHER_PLAYER); noStroke();
-            triangle(PLAYER_SIZE / 2, 0, -PLAYER_SIZE / 2, -PLAYER_SIZE / 3, -PLAYER_SIZE / 2, PLAYER_SIZE / 3); pop();
-        }
-    }
-     // Draw local player
+    for (const id in serverState.players) { if (id !== myPlayerId) { let pData = serverState.players[id]; push(); translate(pData.x, pData.y); rotate(pData.angle); fill(COLOR_OTHER_PLAYER); noStroke(); triangle(PLAYER_SIZE / 2, 0, -PLAYER_SIZE / 2, -PLAYER_SIZE / 3, -PLAYER_SIZE / 2, PLAYER_SIZE / 3); pop(); } }
      if (localPlayerInstance) { localPlayerInstance.display(); }
-    // Draw zombies
     for (const id in serverState.zombies) { drawZombieFromServer(serverState.zombies[id]); }
-    // Draw player bullets
     for (const id in serverState.bullets) { drawBulletFromServer(serverState.bullets[id], COLOR_BULLET); }
-    // Draw enemy bullets
     for (const id in serverState.enemyBullets) { drawBulletFromServer(serverState.enemyBullets[id], COLOR_ENEMY_BULLET); }
-    // Draw XP balls
     for (const id in serverState.xpBalls) { drawXpBallFromServer(serverState.xpBalls[id]); }
-    // Draw particles
-    for(let p of particles) { p.display(); } // Draw updated particles
+    for(let p of particles) { p.display(); }
 }
 function drawZombieFromServer(zData) {
     push(); translate(zData.x, zData.y);
@@ -579,7 +334,7 @@ function sendInputs() {
     }
 }
 
-// --- HUD & UI Screens --- (displayHUD, displayStartScreen, displayGameOverScreen, displayLevelUpModal, defineUpgrades)
+// --- HUD & UI Screens ---
 function displayHUD() {
     let hudHeight = 90; fill(COLOR_HUD_BG); noStroke(); rect(0, 0, width, hudHeight);
     fill(COLOR_TEXT); textSize(18); textAlign(LEFT, CENTER);
@@ -595,7 +350,6 @@ function displayHUD() {
     fill(COLOR_XP_BAR); noStroke(); rect(xpBarX, xpBarY, max(0, xpBarWidth * xpPercent), xpBarHeight, 5);
     fill(COLOR_TEXT); textSize(12); textAlign(CENTER, CENTER); text(`${serverState.shared.currentXP}/${serverState.shared.xpToNextLevel}`, xpBarX + xpBarWidth / 2, xpBarY + xpBarHeight / 2);
     textSize(14); textAlign(LEFT, CENTER);
-    // Display acquired perks list from server state
     let perksText = "Perks: " + (serverState.shared.acquiredPerks.length > 0 ? serverState.shared.acquiredPerks.join(', ') : "None");
     text(perksText, 20, 70, width - 40);
     textAlign(CENTER, CENTER); textSize(16);
