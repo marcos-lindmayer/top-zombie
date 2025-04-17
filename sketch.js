@@ -18,6 +18,15 @@ let upgradePool = [];
 let currentUpgradeOptions = [];
 let levelUpModalButtons = []; // To store button bounds for clicking
 
+// Mobile Controls State
+let touchMoveId = -1; // ID of the touch controlling movement
+let touchMoveBaseX, touchMoveBaseY; // Center of the joystick base
+let touchMoveStickX, touchMoveStickY; // Current position of the stick relative to base center
+let joystickBaseSize = 120;
+let joystickStickSize = 60;
+let joystickActive = false; // Flag to know if touch controls are potentially active
+let isShootingTouch = false; // Flag for auto-shoot via touch
+
 // Colors
 const COLOR_PLAYER = [0, 150, 255]; // Blue
 const COLOR_BULLET = [255, 255, 0]; // Yellow
@@ -41,6 +50,8 @@ const COLOR_MODAL_BG = [40, 40, 60, 230]; // Dark blueish semi-transparent
 const COLOR_BUTTON_BG = [80, 80, 120];
 const COLOR_BUTTON_HOVER_BG = [110, 110, 160];
 const COLOR_BUTTON_TEXT = [255, 255, 255];
+const COLOR_JOYSTICK_BASE = [100, 100, 100, 100]; // Semi-transparent gray
+const COLOR_JOYSTICK_STICK = [150, 150, 150, 150];
 
 // Game Balance / Config
 const SHOOTER_ZOMBIE_CHANCE = 0.15; // 15% chance for a zombie to be a shooter
@@ -53,7 +64,7 @@ const MINIBOSS_XP_DROP_MULTIPLIER = 10; // How many regular XP drops the mini-bo
 const GIGABOSS_HEALTH_BASE = 800;
 const GIGABOSS_HEALTH_SCALE = 200; // Extra health per wave it appears
 const GIGABOSS_XP_DROP_MULTIPLIER = 30; // How many regular XP drops the giga-boss is worth
-const BASE_XP_PER_ORB = 500; // << INCREASED XP per orb (was 50)
+const BASE_XP_PER_ORB = 100; // << INCREASED XP per orb (was 50)
 const BASE_XP_TO_LEVEL = 50; // Lowered initial XP requirement
 const XP_LEVEL_SCALING_FACTOR = 1.25; // Lowered scaling factor
 const PLAYER_BASE_SPEED = 4.0; // Slightly increased base speed
@@ -67,75 +78,212 @@ function setup() {
   angleMode(RADIANS); // Use radians for angles
   textAlign(CENTER, CENTER);
   textSize(16); // Default text size
+
+  // Initialize Joystick position
+  touchMoveBaseX = joystickBaseSize * 0.8;
+  touchMoveBaseY = height - joystickBaseSize * 0.8;
+  touchMoveStickX = touchMoveBaseX;
+  touchMoveStickY = touchMoveBaseY;
 }
 
 function draw() {
   // --- Game State Logic ---
   switch (gameState) {
     case 'start':
-      background(COLOR_BACKGROUND); // Clear background for start/game over
+      background(COLOR_BACKGROUND);
       displayStartScreen();
       break;
     case 'playing':
-      background(COLOR_BACKGROUND); // Clear background each frame during play
-      runGame(); // Update and draw game elements
+      background(COLOR_BACKGROUND);
+      runGame();
+      if (joystickActive) drawJoystick(); // Draw joystick if touch detected
       break;
     case 'levelUp':
-      // Don't clear background, draw modal on top of paused game screen
-      // Make sure game elements are drawn once before modal
-      player.display(); // Display player includes shield now
+      // Draw paused game state
+      player.display();
       for(let b of bullets) b.display();
-      for(let eb of enemyBullets) eb.display(); // Draw enemy bullets
+      for(let eb of enemyBullets) eb.display();
       for(let z of zombies) z.display();
       for(let x of xpBalls) x.display();
-      for(let p of particles) p.display(); // Draw particles in paused state too
-      displayHUD(); // Show HUD even when paused for level up
-      // Now draw the modal on top
+      for(let p of particles) p.display();
+      displayHUD();
+      if (joystickActive) drawJoystick(); // Also draw joystick when paused
+      // Draw modal on top
       displayLevelUpModal();
       break;
     case 'gameOver':
-      background(COLOR_BACKGROUND); // Clear background for start/game over
+      background(COLOR_BACKGROUND);
       displayGameOverScreen();
       break;
   }
 }
 
-// Removed shooting from mousePressed, kept state changes and modal clicks
-function mousePressed() {
-   if (gameState === 'start') {
-        // Start the game on mouse click
+// Handle Touch Start
+function touchStarted() {
+  joystickActive = true; // Assume touch device if touch event occurs
+  // Check if starting touch is within the joystick base area
+  if (touchMoveId === -1) { // Only capture if joystick isn't already controlled
+    for (let i = 0; i < touches.length; i++) {
+        let touch = touches[i];
+        let d = dist(touch.x, touch.y, touchMoveBaseX, touchMoveBaseY);
+        // Allow starting touch slightly outside base for easier activation
+        if (d < joystickBaseSize * 0.75) {
+            touchMoveId = touch.id;
+            // Update stick position immediately, clamped
+            updateJoystickStick(touch.x, touch.y);
+            return false; // Prevent default browser actions
+        }
+    }
+  }
+
+  // Handle clicks for starting/restarting game on mobile
+   if (gameState === 'start' || gameState === 'gameOver') {
         startNewGame();
         gameState = 'playing';
-    } else if (gameState === 'gameOver') {
-        // Restart game on mouse click
-        startNewGame();
-        gameState = 'playing';
-    } else if (gameState === 'levelUp') {
-        // Check if an upgrade button was clicked
-        for (let i = 0; i < levelUpModalButtons.length; i++) {
+        return false; // Prevent default
+   }
+   // Handle clicks for level up modal on mobile
+   if (gameState === 'levelUp') {
+       for (let i = 0; i < levelUpModalButtons.length; i++) {
             let btn = levelUpModalButtons[i];
-            if (mouseX > btn.x && mouseX < btn.x + btn.w && mouseY > btn.y && mouseY < btn.y + btn.h) {
-                // Apply the chosen upgrade
+            // Use first touch for button interaction
+            if (touches[0] && touches[0].x > btn.x && touches[0].x < btn.x + btn.w && touches[0].y > btn.y && touches[0].y < btn.y + btn.h) {
                 currentUpgradeOptions[i].applyEffect(player);
-                // Add upgrade name to player's list (only if it's not already there?)
-                // For simplicity, allow duplicates for stackable perks
                 player.acquiredUpgrades.push(currentUpgradeOptions[i].name);
-                // Clear options and resume game
                 currentUpgradeOptions = [];
                 levelUpModalButtons = [];
                 gameState = 'playing';
-                // Optional: Add upgrade selection sound
-                break; // Exit loop once an upgrade is chosen
+                // Reset joystick state after modal interaction
+                resetJoystick();
+                return false; // Prevent default
             }
         }
+   }
+
+  return true; // Allow default actions if touch wasn't handled
+}
+
+// Handle Touch Movement
+function touchMoved() {
+  joystickActive = true;
+  // Find the touch that matches the captured ID
+  for (let i = 0; i < touches.length; i++) {
+    let touch = touches[i];
+    if (touch.id === touchMoveId) {
+      updateJoystickStick(touch.x, touch.y);
+      return false; // Prevent default browser scrolling
     }
+  }
+  return true;
+}
+
+// Handle Touch End
+function touchEnded() {
+  joystickActive = true;
+  // Check if the ended touch was the one controlling the joystick
+  for (let i = 0; i < touches.length; i++) { // Check remaining touches
+      // This logic is tricky with p5's `touches` array after end.
+      // It's safer to check the ID passed implicitly by the event system if available,
+      // but p5 might not provide it directly here. We reset if *any* touch ends
+      // while an ID is active, or more robustly, check if the active ID is *no longer*
+      // present in the `touches` array.
+      // Simple approach: Reset if the touchMoveId is active.
+      if (touchMoveId !== -1) {
+         // A touch ended, was it ours? P5 doesn't tell us which one easily.
+         // Let's check if our tracked ID is still present in the touches array.
+         let stillTouching = false;
+         for (let j = 0; j < touches.length; j++) {
+             if (touches[j].id === touchMoveId) {
+                 stillTouching = true;
+                 break;
+             }
+         }
+         if (!stillTouching) {
+             resetJoystick();
+         }
+      }
+  }
+   // Also check if touches array is empty after the event
+   if (touches.length === 0) {
+        resetJoystick();
+   }
+
+  return false; // Prevent default actions
+}
+
+// Helper to update joystick stick position
+function updateJoystickStick(x, y) {
+    let vec = createVector(x - touchMoveBaseX, y - touchMoveBaseY);
+    // Clamp the vector magnitude to the size of the joystick base radius
+    let maxDist = joystickBaseSize / 2;
+    if (vec.magSq() > maxDist * maxDist) { // Use magSq for efficiency
+        vec.setMag(maxDist);
+    }
+    touchMoveStickX = touchMoveBaseX + vec.x;
+    touchMoveStickY = touchMoveBaseY + vec.y;
+}
+
+// Helper to reset joystick state
+function resetJoystick() {
+    touchMoveId = -1;
+    touchMoveStickX = touchMoveBaseX;
+    touchMoveStickY = touchMoveBaseY;
+    isShootingTouch = false; // Stop auto-shooting
+}
+
+// Draw the virtual joystick
+function drawJoystick() {
+    push();
+    // Draw Base
+    fill(COLOR_JOYSTICK_BASE);
+    noStroke();
+    ellipse(touchMoveBaseX, touchMoveBaseY, joystickBaseSize, joystickBaseSize);
+
+    // Draw Stick
+    fill(COLOR_JOYSTICK_STICK);
+    ellipse(touchMoveStickX, touchMoveStickY, joystickStickSize, joystickStickSize);
+    pop();
+}
+
+
+// Mouse Pressed function only handles desktop clicks for modal/start/restart
+function mousePressed() {
+   // Only handle mouse clicks if NOT using touch (prevents double actions)
+   if (!joystickActive) {
+        if (gameState === 'start') {
+            startNewGame();
+            gameState = 'playing';
+        } else if (gameState === 'gameOver') {
+            startNewGame();
+            gameState = 'playing';
+        } else if (gameState === 'levelUp') {
+            for (let i = 0; i < levelUpModalButtons.length; i++) {
+                let btn = levelUpModalButtons[i];
+                if (mouseX > btn.x && mouseX < btn.x + btn.w && mouseY > btn.y && mouseY < btn.y + btn.h) {
+                    currentUpgradeOptions[i].applyEffect(player);
+                    player.acquiredUpgrades.push(currentUpgradeOptions[i].name);
+                    currentUpgradeOptions = [];
+                    levelUpModalButtons = [];
+                    gameState = 'playing';
+                    break;
+                }
+            }
+        }
+   }
 }
 
 
 // Handle window resize
 function windowResized() {
   resizeCanvas(windowWidth * 0.9, windowHeight * 0.8);
-  // Optional: Recalculate modal/button positions if needed
+  // Recalculate joystick base position
+  touchMoveBaseX = joystickBaseSize * 0.8;
+  touchMoveBaseY = height - joystickBaseSize * 0.8;
+  // Reset stick position if not actively touched
+  if (touchMoveId === -1) {
+      touchMoveStickX = touchMoveBaseX;
+      touchMoveStickY = touchMoveBaseY;
+  }
 }
 
 // === Game Logic Functions ===
@@ -337,6 +485,7 @@ function startNewGame() {
     player = new Player(width / 2, height / 2); // Reset player (resets level/XP/stats/perks too)
     currentUpgradeOptions = []; // Clear any lingering upgrade options
     levelUpModalButtons = [];
+    resetJoystick(); // Ensure joystick is reset
     // Start first wave immediately? Or wait for runGame loop? Let's wait.
 }
 
@@ -393,7 +542,7 @@ function spawnZombies(count) {
 // Extracted MiniBoss spawning logic
 function spawnMiniBossFunc() {
     let pos = getRandomSpawnPosition();
-    let bossHealth = MINIBOSS_HEALTH_BASE + (wave / 2) * MINIBOSS_HEALTH_SCALE; // Scale health
+    let bossHealth = MINIBOSS_HEALTH_BASE + floor(wave / 2) * MINIBOSS_HEALTH_SCALE; // Scale health properly
     let bossSpeed = 0.8; // Slower than regular zombies
     zombies.push(new MiniBoss(pos.x, pos.y, bossSpeed, bossHealth));
 }
@@ -401,7 +550,7 @@ function spawnMiniBossFunc() {
 // New GigaBoss spawning logic
 function spawnGigaBossFunc() {
     let pos = getRandomSpawnPosition(); // Spawn Giga Boss like others for now
-    let bossHealth = GIGABOSS_HEALTH_BASE + (wave / 5) * GIGABOSS_HEALTH_SCALE; // Scale health
+    let bossHealth = GIGABOSS_HEALTH_BASE + floor(wave / 5) * GIGABOSS_HEALTH_SCALE; // Scale health properly
     let bossSpeed = 0.5; // Even slower
     zombies.push(new GigaBoss(pos.x, pos.y, bossSpeed, bossHealth));
 }
@@ -502,11 +651,11 @@ function displayStartScreen() {
   text("Zombie Annihilator", width / 2, height / 2 - 100); // Moved up slightly more
 
   textSize(24);
-  text("Use WASD to Move", width / 2, height / 2 - 20);
-  text("Aim with Mouse", width / 2, height / 2 + 20); // Instruction
-  text("Hold SPACEBAR to Shoot", width / 2, height / 2 + 60); // Instruction
+  text("Use WASD or Joystick to Move", width / 2, height / 2 - 20); // Updated
+  text("Aim with Mouse (Desktop)", width / 2, height / 2 + 20); // Updated
+  text("Hold SPACE or Move Joystick to Shoot", width / 2, height / 2 + 60); // Updated
   text("Collect XP orbs to Level Up!", width / 2, height/2 + 100);
-  text("Click to Start", width / 2, height / 2 + 160);
+  text("Click / Tap to Start", width / 2, height / 2 + 160); // Updated
 }
 
 
@@ -526,7 +675,7 @@ function displayGameOverScreen() {
    text(`You survived ${wave -1} waves!`, width / 2, height / 2 + 100);
 
    textSize(24);
-   text("Click to Play Again", width / 2, height / 2 + 150);
+   text("Click / Tap to Play Again", width / 2, height / 2 + 150); // Updated
 }
 
 // --- Upgrade System Functions ---
@@ -921,24 +1070,50 @@ class Player {
 
 
     // --- Input Handling ---
-    // Aiming (Mouse)
-    this.angle = atan2(mouseY - this.pos.y, mouseX - this.pos.x);
+    let isMovingWithTouch = false;
+    let moveVector = createVector(0, 0);
 
-    // Movement (WASD)
-    this.vel.set(0, 0);
-    if (keyIsDown(87) || keyIsDown(UP_ARROW)) { this.vel.y = -1; }
-    if (keyIsDown(83) || keyIsDown(DOWN_ARROW)) { this.vel.y = 1; }
-    if (keyIsDown(65) || keyIsDown(LEFT_ARROW)) { this.vel.x = -1; }
-    if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) { this.vel.x = 1; }
+    // Touch Controls (Joystick)
+    if (touchMoveId !== -1) {
+        joystickActive = true; // Keep flag active if touch is down
+        let stickVec = createVector(touchMoveStickX - touchMoveBaseX, touchMoveStickY - touchMoveBaseY);
+        let stickMag = stickVec.mag();
+        let maxDist = joystickBaseSize / 2;
 
-    if (this.vel.mag() > 0) {
-        this.vel.normalize();
-        this.vel.mult(currentSpeed); // Use potentially boosted speed
+        if (stickMag > maxDist * 0.1) { // Add a small deadzone
+             isMovingWithTouch = true;
+             moveVector = stickVec.limit(maxDist); // Use the clamped vector for direction/speed scaling
+             this.vel = moveVector.copy().normalize().mult(currentSpeed); // Use potentially boosted speed
+             this.angle = moveVector.heading(); // Aim in movement direction
+             isShootingTouch = true; // Auto-shoot when moving with touch
+        } else {
+             this.vel.set(0, 0); // Stop if stick is centered
+             isShootingTouch = false;
+        }
     }
-    this.pos.add(this.vel);
+    // Keyboard Controls (Only if touch is not active)
+    else if (!isMovingWithTouch) {
+        joystickActive = false; // No active touch controlling joystick
+        isShootingTouch = false;
+        // Aiming (Mouse)
+        this.angle = atan2(mouseY - this.pos.y, mouseX - this.pos.x);
+        // Movement (WASD)
+        this.vel.set(0, 0);
+        if (keyIsDown(87) || keyIsDown(UP_ARROW)) { this.vel.y = -1; }
+        if (keyIsDown(83) || keyIsDown(DOWN_ARROW)) { this.vel.y = 1; }
+        if (keyIsDown(65) || keyIsDown(LEFT_ARROW)) { this.vel.x = -1; }
+        if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) { this.vel.x = 1; }
 
-    // Shooting (Spacebar)
-    if (keyIsDown(32)) {
+        if (this.vel.mag() > 0) {
+            this.vel.normalize();
+            this.vel.mult(currentSpeed); // Use potentially boosted speed
+        }
+    }
+
+    this.pos.add(this.vel); // Apply final velocity
+
+    // Shooting (Spacebar OR Touch Move)
+    if (keyIsDown(32) || isShootingTouch) {
         if (this.fireRateCooldown <= 0) {
             for (let i = 0; i < this.shotCount; i++) {
                 let angleOffset = (i - (this.shotCount - 1) / 2) * this.shotSpreadAngle;
@@ -946,8 +1121,8 @@ class Player {
                 bullets.push(new Bullet(
                     this.pos.x, this.pos.y, fireAngle,
                     this.bulletDamage, this.maxPierceCount,
-                    this.bulletSpeedMultiplier, this.bulletSizeMultiplier, // Pass new stats
-                    this.maxRicochets // Pass ricochet count
+                    this.bulletSpeedMultiplier, this.bulletSizeMultiplier,
+                    this.maxRicochets
                 ));
             }
             this.fireRateCooldown = currentFireRateCooldown; // Use potentially boosted fire rate
